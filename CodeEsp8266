@@ -1,0 +1,121 @@
+#include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
+
+// WiFi Configuration
+const char* ssid = "FPI CT STUDENTS";
+const char* password = "fpixinchao";
+
+// Telegram Bot Configuration
+#define BOT_TOKEN "8085191482:AAHWLUcKNHVPFeJHNUfLvjXF92I5uqlSu-E"
+#define CHAT_ID "6581340749"
+
+// Motion Sensor Configuration
+#define MOTION_SENSOR_PIN 5 // GPIO5 (D1 on NodeMCU)
+
+WiFiClientSecure client;
+bool motionDetected = false;
+
+void setup() {
+    Serial.begin(115200);
+    pinMode(MOTION_SENSOR_PIN, INPUT);
+    connectWiFi();
+    client.setInsecure(); // Bypass SSL certificate validation
+    Serial.println("System initialized. Waiting for motion...");
+}
+
+void loop() {
+    static unsigned long lastMotionCheck = 0;
+    unsigned long currentMillis = millis();
+    
+    // Check motion sensor every second
+    if (currentMillis - lastMotionCheck >= 1000) {
+        lastMotionCheck = currentMillis;
+        
+        int motionState = digitalRead(MOTION_SENSOR_PIN);
+        Serial.print("Motion Sensor State: ");
+        Serial.println(motionState);
+
+        if (motionState == HIGH && !motionDetected) {
+            motionDetected = true;
+            Serial.println("⚠️ Motion detected!");
+            sendTelegramMessage("🚨 Alert! Unexpected motion detected!");
+        }
+        
+        if (motionState == LOW && motionDetected) {
+            motionDetected = false;
+            Serial.println("✅ Motion cleared.");
+        }
+    }
+}
+
+// Connect to WiFi
+void connectWiFi() {
+    Serial.print("Connecting to WiFi: ");
+    Serial.println(ssid);
+    WiFi.begin(ssid, password);
+
+    int timeout = 30;
+    while (WiFi.status() != WL_CONNECTED && timeout-- > 0) {
+        delay(500);
+        Serial.print(".");
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\n✅ WiFi connected!");
+    } else {
+        Serial.println("\n❌ Failed to connect to WiFi! Check SSID/password.");
+        // You can add a retry mechanism here
+    }
+}
+
+// Send Telegram Message
+void sendTelegramMessage(String text) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("❌ No WiFi connection! Skipping Telegram message.");
+        return;
+    }
+    
+    String url = "https://api.telegram.org/bot" + String(BOT_TOKEN) +
+                 "/sendMessage?chat_id=" + String(CHAT_ID) +
+                 "&text=" + urlEncode(text);
+    
+    Serial.println("🌐 Connecting to Telegram API...");
+    
+    if (!client.connect("api.telegram.org", 443)) {
+        Serial.println("❌ Failed to connect to Telegram API!");
+        return;
+    }
+
+    Serial.println("📤 Sending message to Telegram...");
+    client.print("GET " + url + " HTTP/1.1\r\n" +
+                 "Host: api.telegram.org\r\n" +
+                 "Connection: close\r\n\r\n");
+    
+    String response = "";
+    while (client.available()) {
+        response += client.readString();
+    }
+    client.stop();
+
+    if (response.indexOf("\"ok\":true") != -1) {
+        Serial.println("✅ Message sent successfully!");
+    } else {
+        Serial.println("❌ Failed to send message!");
+    }
+}
+
+// URL Encoding
+String urlEncode(String str) {
+    String encoded = "";
+    for (int i = 0; i < str.length(); i++) {
+        char c = str.charAt(i);
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            encoded += c;
+        } else {
+            char hex[3];
+            sprintf(hex, "%%%02X", c);
+            encoded += hex;
+        }
+    }
+    return encoded;
+}
