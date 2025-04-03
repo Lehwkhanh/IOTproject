@@ -1,0 +1,107 @@
+#include <AFMotor.h>
+
+#define MQ2_PIN A0   // Gas sensor
+#define MOTION_SENSOR_PIN 22  // Motion sensor
+#define GAS_THRESHOLD 300  // Gas warning threshold
+#define MAX_SPEED 255  // Maximum speed
+#define TURN_SPEED 200  // Turning speed
+
+// Define Serial
+#define espSerial Serial1   // ESP8266 connected to Serial1 (TX=18, RX=19)
+#define bluetoothSerial Serial2   // HC-05 connected to Serial2 (TX=16, RX=17)
+
+// Motor setup
+AF_DCMotor M1(1);
+AF_DCMotor M2(2);
+AF_DCMotor M3(3);
+AF_DCMotor M4(4);
+
+void setup() {
+    Serial.begin(115200);      // Debug on Serial Monitor
+    espSerial.begin(115200);   // ESP8266
+    bluetoothSerial.begin(9600);  // HC-05
+
+    pinMode(MQ2_PIN, INPUT);
+    pinMode(MOTION_SENSOR_PIN, INPUT);
+
+    Serial.println("Bluetooth Car + Gas & Motion Warning + Telegram Ready!");
+}
+
+void loop() {
+    checkGasSensor();
+    checkMotionSensor();
+    BluetoothControl();
+}
+
+// Read gas sensor and send alert if needed
+void checkGasSensor() {
+    int gasLevel = analogRead(MQ2_PIN);
+    Serial.print("Gas Level: ");
+    Serial.println(gasLevel);
+
+    if (gasLevel > GAS_THRESHOLD) {
+        Serial.println("WARNING: Gas leakage detected!");
+        sendAlertToTelegram("WARNING: Gas detected! Level: " + String(gasLevel));
+        delay(5000); // Prevent message spam
+    }
+}
+
+// Check motion sensor and send alert if motion detected
+void checkMotionSensor() {
+    if (digitalRead(MOTION_SENSOR_PIN) == HIGH) {
+        Serial.println("⚠️ Motion detected!");
+        sendAlertToTelegram("🚨 Alert! Unexpected motion detected!");
+        delay(5000); // Prevent message spam
+    }
+}
+
+// Send alert to Telegram via ESP8266
+void sendAlertToTelegram(String message) {
+    espSerial.println(message);
+}
+
+// Receive Bluetooth commands to control the car
+void BluetoothControl() {
+    if (bluetoothSerial.available() > 0) {
+        char value = bluetoothSerial.read();
+        Serial.print("Received command: ");
+        Serial.println(value);
+        
+        switch (value) {
+            case 'F': moveCar(FORWARD, MAX_SPEED); break;
+            case 'B': moveCar(BACKWARD, MAX_SPEED); break;
+            case 'R': turnCar(TURN_SPEED, MAX_SPEED); break;
+            case 'L': turnCar(MAX_SPEED, TURN_SPEED); break;
+            case 'S': stopCar(); break;
+        }
+    }
+}
+
+void moveCar(uint8_t direction, uint8_t speed) {
+    M1.setSpeed(speed);
+    M2.setSpeed(speed);
+    M3.setSpeed(speed);
+    M4.setSpeed(speed);
+    M1.run(direction);
+    M2.run(direction);
+    M3.run(direction);
+    M4.run(direction);
+}
+
+void turnCar(uint8_t leftSpeed, uint8_t rightSpeed) {
+    M1.setSpeed(leftSpeed);
+    M2.setSpeed(leftSpeed);
+    M3.setSpeed(rightSpeed);
+    M4.setSpeed(rightSpeed);
+    M1.run(BACKWARD);
+    M2.run(BACKWARD);
+    M3.run(FORWARD);
+    M4.run(FORWARD);
+}
+
+void stopCar() {
+    M1.run(RELEASE);
+    M2.run(RELEASE);
+    M3.run(RELEASE);
+    M4.run(RELEASE);
+}
